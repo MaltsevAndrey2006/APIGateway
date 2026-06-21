@@ -1,0 +1,160 @@
+services:
+  api_gateway_app:
+    build: .
+    container_name: apigateway-gate-way-app
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      PUBLIC_KEY: ${PUBLIC_KEY}
+    ports:
+      - "${API_GATEWAY_APP_PORT:-8085}:8085"
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+  user_db:
+    image: postgres:15
+    container_name: apigateway-postgres-user-db
+    environment:
+      POSTGRES_DB: ${USER_DB_NAME}
+      POSTGRES_USER: ${USER_DB_USERNAME}
+      POSTGRES_PASSWORD: ${USER_DB_PASSWORD}
+    ports:
+      - "${USER_DB_PORT}:5432"
+    volumes:
+      - user_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${USER_DB_USERNAME} -d ${USER_DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+  user_cache:
+    image: redis:7-alpine
+    container_name: apigateway-redis-user-cache
+    restart: always
+    ports:
+      - "${USER_CACHE_PORT}:6379"
+    volumes:
+      - user_redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservices-network
+
+  user_app:
+    image: userservice-app:latest
+    container_name: apigateway-user-service-app
+    depends_on:
+      user_db:
+        condition: service_healthy
+      user_cache:
+        condition: service_healthy
+    environment:
+      SPR_PROFILE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://user_db:5432/${USER_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${USER_DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${USER_DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: user_cache
+      SPRING_DATA_REDIS_PORT: 6379
+      JWT_PUBLIC_KEY: ${PUBLIC_KEY}
+    ports:
+      - "${USER_APP_PORT:-8080}:8080"
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+  order_db:
+    image: postgres:15
+    container_name: apigateway-postgres-order-db
+    environment:
+      POSTGRES_DB: ${ORDER_DB_NAME}
+      POSTGRES_USER: ${ORDER_DB_USERNAME}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+    ports:
+      - "${ORDER_DB_PORT}:5432"
+    volumes:
+      - order_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${ORDER_DB_USERNAME} -d ${ORDER_DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+  order_app:
+    image: orderservice-app:latest
+    container_name: apigateway-order-service-app
+    depends_on:
+      order_db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: ${ORDER_APP_PORT:-8083}
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://order_db:5432/${ORDER_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${ORDER_DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${ORDER_DB_PASSWORD}
+      JWT_PUBLIC_KEY: ${PUBLIC_KEY}
+      USER_SERVICE_URL: ${USER_SERVICE_URL}
+    ports:
+      - "${ORDER_APP_PORT}:8083"
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+  auth_db:
+    image: postgres:15
+    container_name: apigateway-postgres-auth-db
+    environment:
+      POSTGRES_DB: ${AUTH_DB_NAME}
+      POSTGRES_USER: ${AUTH_DB_USERNAME}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
+    ports:
+      - "${AUTH_DB_PORT}:5432"
+    volumes:
+      - auth_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${AUTH_DB_USERNAME} -d ${AUTH_DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+  auth_app:
+    image: authenticationservice-app:latest
+    container_name: apigateway-auth-service-app
+    depends_on:
+      auth_db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: ${AUTH_APP_PORT:-8081}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth_db:5432/${AUTH_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${AUTH_DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${AUTH_DB_PASSWORD}
+      PUBLIC_KEY: ${PUBLIC_KEY}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+    ports:
+      - "${AUTH_APP_PORT:-8081}:8081"
+    restart: unless-stopped
+    networks:
+      - microservices-network
+
+networks:
+  microservices-network:
+    driver: bridge
+
+volumes:
+  user_postgres_data:
+  user_redis_data:
+  order_postgres_data:
+  auth_postgres_data:
